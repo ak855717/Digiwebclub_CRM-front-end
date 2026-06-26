@@ -18,6 +18,7 @@ export default function Dashboard() {
   const [leads, setLeads] = useState([]);
   const [todos, setTodos] = useState([]);
   const [newTodoText, setNewTodoText] = useState('');
+  const [totalEmployees, setTotalEmployees] = useState(0);
 
   const fetchLeads = async () => {
     try {
@@ -49,6 +50,22 @@ export default function Dashboard() {
     }
   };
 
+  const fetchTotalEmployees = async (userId) => {
+    try {
+      const response = await fetch('/api/users/count', {
+        headers: {
+          'x-user-id': userId
+        }
+      });
+      const data = await response.json();
+      if (data.success) {
+        setTotalEmployees(data.count);
+      }
+    } catch (error) {
+      console.error('Error fetching employees count:', error);
+    }
+  };
+
   useEffect(() => {
     fetchLeads();
     fetchFollowUps();
@@ -59,7 +76,9 @@ export default function Dashboard() {
     if (!storedUser) {
       router.push('/');
     } else {
-      setUser(JSON.parse(storedUser));
+      const parsedUser = JSON.parse(storedUser);
+      setUser(parsedUser);
+      fetchTotalEmployees(parsedUser.id);
     }
   }, [router]);
 
@@ -174,6 +193,7 @@ export default function Dashboard() {
             handleAddTodo={handleAddTodo}
             leads={leads}
             setActiveTab={setActiveTab}
+            totalEmployees={totalEmployees}
           />
         );
       case 'leads':

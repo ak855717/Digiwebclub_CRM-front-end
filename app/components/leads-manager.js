@@ -65,8 +65,20 @@ export default function LeadsManager({ leads, setLeads, user }) {
     }
   }, [customColumns, isClient]);
 
-  // Combine standard and custom columns
-  const allColumns = [...BASE_COLUMNS, ...customColumns];
+  // Combine standard and custom columns, and add tracking columns conditionally
+  const trackingColumns = [
+    { key: 'createdAt', label: 'Created At', type: 'datetime' },
+    { key: 'updatedAt', label: 'Last Updated', type: 'datetime' }
+  ];
+
+  if (user?.role === 'admin') {
+    trackingColumns.push(
+      { key: 'createdBy', label: 'Created By', type: 'text' },
+      { key: 'updatedBy', label: 'Updated By', type: 'text' }
+    );
+  }
+
+  const allColumns = [...BASE_COLUMNS, ...customColumns, ...trackingColumns];
 
   // Formatting URL badges cleanly
   const renderUrlBadge = (key, value) => {
@@ -167,6 +179,11 @@ export default function LeadsManager({ leads, setLeads, user }) {
     if (col.type === 'date') {
       return val ? <span className="text-slate-500 text-xs font-semibold">{val}</span> : <span className="text-slate-300">-</span>;
     }
+    if (col.type === 'datetime') {
+      if (!val) return <span className="text-slate-300">-</span>;
+      const d = new Date(val);
+      return <span className="text-slate-500 text-[10px] font-semibold">{d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>;
+    }
     
     return val !== undefined && val !== '' ? (
       <span className="text-slate-600 font-semibold block max-w-[200px] truncate" title={val.toString()}>
@@ -228,7 +245,10 @@ export default function LeadsManager({ leads, setLeads, user }) {
       if (leadModal.type === 'add') {
         const response = await fetch('/api/leads', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 
+            'Content-Type': 'application/json',
+            'x-user-id': user?.id || user?._id || ''
+          },
           body: JSON.stringify(payload)
         });
         const data = await response.json();

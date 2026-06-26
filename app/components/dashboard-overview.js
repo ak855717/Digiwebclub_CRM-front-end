@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 
 export default function DashboardOverview({
   todos,
@@ -8,12 +8,33 @@ export default function DashboardOverview({
   setNewTodoText,
   handleAddTodo,
   leads,
-  setActiveTab
+  setActiveTab,
+  totalEmployees = 0,
 }) {
-  // --- Dynamic Calculations based on leads ---
-  const totalLeads = leads.length || 1;
+  // Date Helpers
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const getStartOfWeek = (date) => {
+    const d = new Date(date);
+    const day = d.getDay() || 7; // Get current day number, converting Sun. to 7
+    if (day !== 1) d.setHours(-24 * (day - 1)); // set to Monday
+    d.setHours(0,0,0,0);
+    return d;
+  };
+
+  const getStartOfMonth = (date) => new Date(date.getFullYear(), date.getMonth(), 1);
+  const getStartOfYear = (date) => new Date(date.getFullYear(), 0, 1);
+
+  // --- Dynamic Calculations based on real data ---
+  const totalLeads = leads.length;
   const contactedLeads = leads.filter(l => l.status === 'Contacted' || l.status === 'Active');
-  const campaignProgress = Math.round((contactedLeads.length / totalLeads) * 100);
+  const campaignProgress = totalLeads ? Math.round((contactedLeads.length / totalLeads) * 100) : 0;
+  
+  // Calculate Daily Activity (Leads created today + Todos completed today)
+  const leadsCreatedToday = leads.filter(l => new Date(l.createdAt || l.updatedAt || new Date()) >= today).length;
+  const todosCompletedToday = todos.filter(t => t.completed).length; // Approximated since we don't have exact completion timestamp in frontend yet
+  const dailyActivity = leadsCreatedToday + todosCompletedToday;
   
   // Total Deposits mock based on leads data
   const totalDeposits = leads.reduce((sum, l) => sum + (l.deposit || 0), 0) + (contactedLeads.length * 450) + 15000;
@@ -54,21 +75,99 @@ export default function DashboardOverview({
   const totalTodosCount = todos.length || 1;
   const todoCompletionPct = Math.round(((totalTodosCount - pendingTodosCount) / totalTodosCount) * 100);
 
+  // Chart Timeframes
+  const [reportTimeframe, setReportTimeframe] = useState('Weekly');
+  const [secondReportTimeframe, setSecondReportTimeframe] = useState('Monthly');
+
+  // Dynamic Chart Data Generation
+  const getDynamicChartData = (timeframe, dataItems) => {
+    const now = new Date();
+    
+    if (timeframe === 'Weekly') {
+      const startOfWeek = getStartOfWeek(now);
+      const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+      const counts = new Array(7).fill(0);
+      
+      dataItems.forEach(item => {
+        const d = new Date(item.createdAt || item.scheduledAt || now);
+        if (d >= startOfWeek) {
+          let dayIndex = d.getDay() - 1;
+          if (dayIndex === -1) dayIndex = 6; // Sunday
+          if (dayIndex >= 0 && dayIndex < 7) counts[dayIndex]++;
+        }
+      });
+      
+      const maxCount = Math.max(...counts, 1);
+      return days.map((day, i) => ({
+        label: day,
+        count: counts[i],
+        pct: `${Math.round((counts[i] / maxCount) * 100)}%`
+      }));
+      
+    } else if (timeframe === 'Monthly') {
+      const startOfMonth = getStartOfMonth(now);
+      const weeks = ['Week 1', 'Week 2', 'Week 3', 'Week 4'];
+      const counts = new Array(4).fill(0);
+      
+      dataItems.forEach(item => {
+        const d = new Date(item.createdAt || item.scheduledAt || now);
+        if (d >= startOfMonth) {
+          const date = d.getDate();
+          let weekIndex = Math.floor((date - 1) / 7);
+          if (weekIndex > 3) weekIndex = 3;
+          counts[weekIndex]++;
+        }
+      });
+      
+      const maxCount = Math.max(...counts, 1);
+      return weeks.map((week, i) => ({
+        label: week,
+        count: counts[i],
+        pct: `${Math.round((counts[i] / maxCount) * 100)}%`
+      }));
+      
+    } else {
+      // Yearly
+      const startOfYear = getStartOfYear(now);
+      const quarters = ['Q1', 'Q2', 'Q3', 'Q4'];
+      const counts = new Array(4).fill(0);
+      
+      dataItems.forEach(item => {
+        const d = new Date(item.createdAt || item.scheduledAt || now);
+        if (d >= startOfYear) {
+          const month = d.getMonth();
+          const quarterIndex = Math.floor(month / 3);
+          counts[quarterIndex]++;
+        }
+      });
+      
+      const maxCount = Math.max(...counts, 1);
+      return quarters.map((q, i) => ({
+        label: q,
+        count: counts[i],
+        pct: `${Math.round((counts[i] / maxCount) * 100)}%`
+      }));
+    }
+  };
+
+  const chart1Data = getDynamicChartData(reportTimeframe, leads);
+  const chart2Data = getDynamicChartData(secondReportTimeframe, todos);
+
   return (
     <div className="flex flex-col gap-6 animate-fade-in">
       {/* Top KPI Metrics Row (4 Cards) */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         
-        {/* Card 1: Total Deposit */}
+        {/* Card 1: Total Leads */}
         <div className="bg-white border border-slate-200/80 rounded-xl p-5 shadow-sm hover:shadow-md transition-all flex flex-col justify-between h-[135px]">
           <div className="flex justify-between items-start">
             <div>
-              <span className="text-[10px] font-bold text-slate-400 tracking-wider uppercase block">Total Deposits</span>
-              <span className="text-2xl font-extrabold text-slate-800 mt-1 block">${totalDeposits.toLocaleString()}</span>
+              <span className="text-[10px] font-bold text-slate-400 tracking-wider uppercase block">Total Leads</span>
+              <span className="text-2xl font-extrabold text-slate-800 mt-1 block">{leads.length}</span>
             </div>
             <div className="w-8 h-8 rounded-lg bg-sky-50 flex items-center justify-center text-sky-500">
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
               </svg>
             </div>
           </div>
@@ -87,52 +186,53 @@ export default function DashboardOverview({
           </div>
         </div>
 
-        {/* Card 2: All Projects (Donut Chart) */}
-        <div className="bg-white border border-slate-200/80 rounded-xl p-5 shadow-sm hover:shadow-md transition-all flex items-center justify-between h-[135px]">
-          <div className="flex-1">
-            <span className="text-[10px] font-bold text-slate-400 tracking-wider uppercase block">Campaign Progress</span>
-            <span className="text-2xl font-extrabold text-slate-800 mt-1 block">{campaignProgress}%</span>
-            <span className="text-[10px] font-semibold text-emerald-600 flex items-center gap-1 mt-2">
-              <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-              +4.3% this week
-            </span>
-          </div>
-          {/* SVG Donut */}
-          <div className="relative w-16 h-16 flex items-center justify-center shrink-0">
-            <svg className="w-full h-full transform -rotate-90">
-              <circle cx="32" cy="32" r="26" stroke="#f1f5f9" strokeWidth="6" fill="transparent" />
-              <circle cx="32" cy="32" r="26" stroke="#38bdf8" strokeWidth="6" fill="transparent" strokeDasharray="163.3" strokeDashoffset={163.3 - (163.3 * campaignProgress / 100)} strokeLinecap="round" />
-            </svg>
-            <span className="absolute text-xs font-bold text-slate-700">{campaignProgress}%</span>
-          </div>
-        </div>
-
-        {/* Card 3: Total Expenses */}
+        {/* Card 2: Total Employees */}
         <div className="bg-white border border-slate-200/80 rounded-xl p-5 shadow-sm hover:shadow-md transition-all flex flex-col justify-between h-[135px]">
           <div className="flex justify-between items-start">
             <div>
-              <span className="text-[10px] font-bold text-slate-400 tracking-wider uppercase block">Daily Outbound Cost</span>
-              <span className="text-2xl font-extrabold text-slate-800 mt-1 block">${dailyCost.toLocaleString()}</span>
+              <span className="text-[10px] font-bold text-slate-400 tracking-wider uppercase block">Total Employees</span>
+              <span className="text-2xl font-extrabold text-slate-800 mt-1 block">{totalEmployees}</span>
+            </div>
+            <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center text-emerald-500">
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+              </svg>
+            </div>
+          </div>
+          {/* SVG Sparkline */}
+          <div className="h-8 w-full mt-2">
+            <svg className="w-full h-full" viewBox="0 0 100 30" preserveAspectRatio="none">
+              <defs>
+                <linearGradient id="emeraldGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#10b981" stopOpacity="0.4" />
+                  <stop offset="100%" stopColor="#10b981" stopOpacity="0" />
+                </linearGradient>
+              </defs>
+              <path d="M0,20 Q20,25 40,15 T80,10 T100,5 L100,30 L0,30 Z" fill="url(#emeraldGrad)" />
+              <path d="M0,20 Q20,25 40,15 T80,10 T100,5" fill="none" stroke="#10b981" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+          </div>
+        </div>
+
+        {/* Card 3: Daily Activity */}
+        <div className="bg-white border border-slate-200/80 rounded-xl p-5 shadow-sm hover:shadow-md transition-all flex flex-col justify-between h-[135px]">
+          <div className="flex justify-between items-start">
+            <div>
+              <span className="text-[10px] font-bold text-slate-400 tracking-wider uppercase block">Daily Activity</span>
+              <span className="text-2xl font-extrabold text-slate-800 mt-1 block">{dailyActivity}</span>
+              <span className="text-[10px] font-semibold text-emerald-600 flex items-center gap-1 mt-1">
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                Active today
+              </span>
             </div>
             <div className="w-8 h-8 rounded-lg bg-rose-50 flex items-center justify-center text-rose-500">
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15 12H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
               </svg>
             </div>
           </div>
           {/* Red Sparkline */}
-          <div className="h-8 w-full mt-2">
-            <svg className="w-full h-full" viewBox="0 0 100 30" preserveAspectRatio="none">
-              <defs>
-                <linearGradient id="roseGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#f43f5e" stopOpacity="0.3" />
-                  <stop offset="100%" stopColor="#f43f5e" stopOpacity="0" />
-                </linearGradient>
-              </defs>
-              <path d="M0,5 Q20,28 40,15 T80,22 T100,8 L100,30 L0,30 Z" fill="url(#roseGrad)" />
-              <path d="M0,5 Q20,28 40,15 T80,22 T100,8" fill="none" stroke="#f43f5e" strokeWidth="2" strokeLinecap="round" />
-            </svg>
-          </div>
+          <div className="h-4 w-full mt-2"></div>
         </div>
 
         {/* Card 4: Pending Tasks */}
@@ -174,23 +274,23 @@ export default function DashboardOverview({
         <div className="bg-white border border-slate-200/80 rounded-xl p-6 shadow-sm flex flex-col justify-between h-[360px]">
           <div>
             <div className="flex justify-between items-center mb-4">
-              <h3 className="font-bold text-slate-800 text-sm">Outbound Volume Trends</h3>
-              <span className="text-[10px] font-semibold bg-slate-100 text-slate-600 px-2 py-0.5 rounded">Weekly</span>
+              <h3 className="font-bold text-slate-800 text-sm">Leads Volume Report</h3>
+              <select 
+                value={reportTimeframe} 
+                onChange={(e) => setReportTimeframe(e.target.value)}
+                className="text-[10px] font-semibold bg-slate-100 text-slate-600 px-2 py-1 rounded border-none outline-none cursor-pointer"
+              >
+                <option value="Weekly">Weekly</option>
+                <option value="Monthly">Monthly</option>
+                <option value="Yearly">Yearly</option>
+              </select>
             </div>
-            <p className="text-xs text-slate-400 font-semibold mb-6">Total number of dialer connection attempts</p>
+            <p className="text-xs text-slate-400 font-semibold mb-6">Total number of leads generated</p>
           </div>
           
           {/* SVG Bar Chart */}
           <div className="flex-1 flex items-end justify-between gap-3 px-2 h-44">
-            {[
-              { day: 'Mon', count: Math.round(totalLeads * 0.8), pct: `${Math.min(100, Math.round(totalLeads * 0.8 / 3))}%` },
-              { day: 'Tue', count: Math.round(totalLeads * 1.2), pct: `${Math.min(100, Math.round(totalLeads * 1.2 / 3))}%` },
-              { day: 'Wed', count: Math.round(totalLeads * 0.5), pct: `${Math.min(100, Math.round(totalLeads * 0.5 / 3))}%` },
-              { day: 'Thu', count: Math.round(totalLeads * 1.5), pct: `${Math.min(100, Math.round(totalLeads * 1.5 / 3))}%` },
-              { day: 'Fri', count: Math.round(totalLeads * 1.0), pct: `${Math.min(100, Math.round(totalLeads * 1.0 / 3))}%` },
-              { day: 'Sat', count: Math.round(totalLeads * 0.3), pct: `${Math.min(100, Math.round(totalLeads * 0.3 / 3))}%` },
-              { day: 'Sun', count: Math.round(totalLeads * 0.1), pct: `${Math.min(100, Math.round(totalLeads * 0.1 / 3))}%` }
-            ].map((item, idx) => (
+            {chart1Data.map((item, idx) => (
               <div key={idx} className="flex-1 flex flex-col items-center gap-2 group cursor-pointer">
                 <div className="w-full bg-slate-50 hover:bg-slate-100 rounded-t-md relative h-40 flex items-end overflow-hidden">
                   <div 
@@ -199,7 +299,7 @@ export default function DashboardOverview({
                   />
                 </div>
                 <span className="text-[10px] font-bold text-slate-400 group-hover:text-slate-700 transition-colors">
-                  {item.day}
+                  {item.label}
                 </span>
               </div>
             ))}
@@ -258,37 +358,39 @@ export default function DashboardOverview({
           </form>
         </div>
 
-        {/* Total Earnings Trendline Graph */}
+        {/* Activity Trend Graph */}
         <div className="bg-white border border-slate-200/80 rounded-xl p-6 shadow-sm flex flex-col justify-between h-[360px]">
           <div>
             <div className="flex justify-between items-center mb-4">
-              <h3 className="font-bold text-slate-800 text-sm">Earnings Growth</h3>
-              <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded">+12.4%</span>
+              <h3 className="font-bold text-slate-800 text-sm">Activity Report</h3>
+              <select 
+                value={secondReportTimeframe} 
+                onChange={(e) => setSecondReportTimeframe(e.target.value)}
+                className="text-[10px] font-semibold bg-emerald-50 text-emerald-700 px-2 py-1 rounded border-none outline-none cursor-pointer"
+              >
+                <option value="Weekly">Weekly</option>
+                <option value="Monthly">Monthly</option>
+                <option value="Yearly">Yearly</option>
+              </select>
             </div>
-            <p className="text-xs text-slate-400 font-semibold mb-6">Total monthly revenue performance</p>
+            <p className="text-xs text-slate-400 font-semibold mb-6">Total number of outbound calls & activity</p>
           </div>
           
-          {/* Revenue SVG Curve */}
-          <div className="h-44 w-full flex items-end">
-            <svg className="w-full h-full" viewBox="0 0 200 100" preserveAspectRatio="none">
-              <defs>
-                <linearGradient id="lineGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.25" />
-                  <stop offset="100%" stopColor="#3b82f6" stopOpacity="0" />
-                </linearGradient>
-              </defs>
-              <path d="M0,80 C30,70 60,90 90,40 C120,30 150,15 200,5 L200,100 L0,100 Z" fill="url(#lineGrad)" />
-              <path d="M0,80 C30,70 60,90 90,40 C120,30 150,15 200,5" fill="none" stroke="#3b82f6" strokeWidth="2.5" strokeLinecap="round" />
-              {/* Data Points */}
-              <circle cx="90" cy="40" r="3.5" fill="#3b82f6" stroke="#ffffff" strokeWidth="1.5" />
-              <circle cx="200" cy="5" r="3.5" fill="#3b82f6" stroke="#ffffff" strokeWidth="1.5" />
-            </svg>
-          </div>
-          <div className="flex justify-between text-[10px] font-bold text-slate-400 pt-2 border-t border-slate-50">
-            <span>Q1</span>
-            <span>Q2</span>
-            <span>Q3</span>
-            <span>Q4</span>
+          {/* Bar Chart 2 */}
+          <div className="flex-1 flex items-end justify-between gap-3 px-2 h-44">
+            {chart2Data.map((item, idx) => (
+              <div key={idx} className="flex-1 flex flex-col items-center gap-2 group cursor-pointer">
+                <div className="w-full bg-slate-50 hover:bg-slate-100 rounded-t-md relative h-40 flex items-end overflow-hidden">
+                  <div 
+                    className="w-full bg-emerald-500 rounded-t-md group-hover:bg-emerald-600 transition-all duration-500" 
+                    style={{ height: item.pct }} 
+                  />
+                </div>
+                <span className="text-[10px] font-bold text-slate-400 group-hover:text-slate-700 transition-colors">
+                  {item.label}
+                </span>
+              </div>
+            ))}
           </div>
         </div>
 
