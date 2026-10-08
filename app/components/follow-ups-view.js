@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 
-export default function FollowUpsView() {
+export default function FollowUpsView({ user }) {
   const [isClient, setIsClient] = useState(false);
   const [followUps, setFollowUps] = useState([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -14,13 +14,16 @@ export default function FollowUpsView() {
   });
 
   useEffect(() => {
+    if (!user?.id) return;
     setIsClient(true);
     fetchFollowUps();
-  }, []);
+  }, [user?.id]);
 
   const fetchFollowUps = async () => {
     try {
-      const response = await fetch('/api/followups');
+      const response = await fetch('/api/followups', {
+        headers: { 'x-user-id': user.id },
+      });
       const data = await response.json();
       if (data.success) {
         setFollowUps(data.followUps);
@@ -40,7 +43,7 @@ export default function FollowUpsView() {
     try {
       const response = await fetch('/api/followups', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-user-id': user.id },
         body: JSON.stringify(formData)
       });
       const data = await response.json();
@@ -60,7 +63,8 @@ export default function FollowUpsView() {
     if (window.confirm('Are you sure you want to delete this follow-up?')) {
       try {
         const response = await fetch(`/api/followups/${id}`, {
-          method: 'DELETE'
+          method: 'DELETE',
+          headers: { 'x-user-id': user.id },
         });
         const data = await response.json();
         if (data.success) {
@@ -77,7 +81,7 @@ export default function FollowUpsView() {
     try {
       const response = await fetch(`/api/followups/${followUp._id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-user-id': user.id },
         body: JSON.stringify({ ...followUp, status: newStatus })
       });
       const data = await response.json();

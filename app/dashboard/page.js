@@ -9,6 +9,7 @@ import LeadsManager from '../components/leads-manager';
 import FollowUpsView from '../components/follow-ups-view';
 import SettingsView from '../components/settings-view';
 import UserManagement from '../components/user-management';
+import ReportsView from '../components/reports-view';
 
 export default function Dashboard() {
   const router = useRouter();
@@ -20,22 +21,12 @@ export default function Dashboard() {
   const [newTodoText, setNewTodoText] = useState('');
   const [totalEmployees, setTotalEmployees] = useState(0);
 
-  const fetchLeads = async () => {
-    try {
-      const response = await fetch('/api/leads');
-      const data = await response.json();
-      if (data.success) {
-        const formattedLeads = data.leads.map(l => ({ ...l, id: l._id }));
-        setLeads(formattedLeads);
-      }
-    } catch (error) {
-      console.error('Error fetching leads:', error);
-    }
-  };
-
   const fetchFollowUps = async () => {
+    if (!user?.id) return;
     try {
-      const response = await fetch('/api/followups');
+      const response = await fetch('/api/followups', {
+        headers: { 'x-user-id': user.id },
+      });
       const data = await response.json();
       if (data.success) {
         const formattedTodos = data.followUps.map(f => ({
@@ -67,9 +58,8 @@ export default function Dashboard() {
   };
 
   useEffect(() => {
-    fetchLeads();
     fetchFollowUps();
-  }, []);
+  }, [user?.id]);
 
   useEffect(() => {
     const storedUser = localStorage.getItem('user');
@@ -82,9 +72,40 @@ export default function Dashboard() {
     }
   }, [router]);
 
-  // Redirect non-admins away from user management tab
+  useEffect(() => {
+    if (!user?.id) return;
+
+    let isCurrent = true;
+    const loadLeads = async () => {
+      try {
+        const response = await fetch('/api/leads', {
+          headers: { 'x-user-id': user.id }
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+          console.error('Error fetching leads:', data.error || 'Request failed');
+          return;
+        }
+        if (isCurrent) {
+          setLeads(data.leads.map(l => ({ ...l, id: l._id })));
+        }
+      } catch (error) {
+        console.error('Error fetching leads:', error);
+      }
+    };
+
+    loadLeads();
+    return () => {
+      isCurrent = false;
+    };
+  }, [user]);
+
+  // Redirect users away from tabs they are not authorized to open.
   useEffect(() => {
     if (activeTab === 'users' && user && user.role !== 'admin') {
+      setActiveTab('dashboard');
+    }
+    if (activeTab === 'reports' && user && user.role !== 'admin' && user.permissions?.canViewReports !== true) {
       setActiveTab('dashboard');
     }
   }, [activeTab, user]);
@@ -122,7 +143,7 @@ export default function Dashboard() {
     try {
       const response = await fetch('/api/followups', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-user-id': user.id },
         body: JSON.stringify({
           leadName: 'Manual Task',
           description: newTodoText.trim(),
@@ -155,7 +176,7 @@ export default function Dashboard() {
     try {
       await fetch(`/api/followups/${id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-user-id': user.id },
         body: JSON.stringify({ status: newStatus })
       });
     } catch (err) {
@@ -171,7 +192,8 @@ export default function Dashboard() {
     
     try {
       await fetch(`/api/followups/${id}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        headers: { 'x-user-id': user.id },
       });
     } catch (err) {
       console.error('Error deleting todo:', err);
@@ -205,11 +227,15 @@ export default function Dashboard() {
           />
         );
       case 'follow-ups':
-        return <FollowUpsView />;
+        return <FollowUpsView user={user} />;
       case 'settings':
         return <SettingsView user={user} />;
       case 'users':
         return <UserManagement user={user} />;
+      case 'reports':
+        return user.role === 'admin' || user.permissions?.canViewReports === true
+          ? <ReportsView leads={leads} />
+          : null;
       default:
         return <div className="text-slate-500 text-xs font-semibold">Tab page not found.</div>;
     }

@@ -1,5 +1,13 @@
 import React, { useState } from 'react';
 
+const COUNTRY_ALIASES = {
+  us: 'United States', usa: 'United States', 'united states': 'United States', 'united states of america': 'United States',
+  uk: 'United Kingdom', gb: 'United Kingdom', 'great britain': 'United Kingdom', 'united kingdom': 'United Kingdom',
+  ca: 'Canada', canada: 'Canada', au: 'Australia', australia: 'Australia', in: 'India', india: 'India',
+};
+const COUNTRY_CODES = { 'United States': 'US', 'United Kingdom': 'GB', Canada: 'CA', Australia: 'AU', India: 'IN' };
+const getCountryCode = (country) => COUNTRY_CODES[country] || country.split(/\s+/).map(part => part[0]).join('').slice(0, 2).toUpperCase();
+
 export default function DashboardOverview({
   todos,
   toggleTodo,
@@ -42,34 +50,28 @@ export default function DashboardOverview({
   // Daily Outbound Cost mock based on leads
   const dailyCost = 500 + (contactedLeads.length * 15);
 
-  // Active Geographies
-  const geoCounts = leads.reduce((acc, l) => {
-    const geo = l.areaZone || 'India';
-    acc[geo] = (acc[geo] || 0) + 1;
+  // Active Geographies: group leads using the most specific available location.
+  const geoCounts = leads.reduce((acc, lead) => {
+    const rawLocation = [lead.country, lead.countryName, lead.areaZone, lead.state, lead.cityPinCode]
+      .find(value => typeof value === 'string' && value.trim());
+    if (!rawLocation) return acc;
+
+    const rawValue = rawLocation.trim();
+    const country = COUNTRY_ALIASES[rawValue.toLowerCase()] || rawValue;
+    acc[country] = (acc[country] || 0) + 1;
     return acc;
   }, {});
 
   const geoEntries = Object.entries(geoCounts).sort((a, b) => b[1] - a[1]).slice(0, 4);
-  const geoTotal = geoEntries.reduce((sum, g) => sum + g[1], 0) || 1;
-  const flags = { 'United States': '🇺🇸', 'United Kingdom': '🇬🇧', 'Canada': '🇨🇦', 'Australia': '🇦🇺', 'India': '🇮🇳' };
+  const geoTotal = Object.values(geoCounts).reduce((sum, count) => sum + count, 0);
   const colors = ['bg-sky-500', 'bg-emerald-500', 'bg-amber-500', 'bg-purple-500'];
-  let activeGeographies = geoEntries.map(([name, count], idx) => ({
+  const activeGeographies = geoEntries.map(([name, count], idx) => ({
     country: name,
-    flag: flags[name] || '🌍',
-    calls: (count * 15),
-    pct: Math.round((count / geoTotal) * 100),
-    color: colors[idx % colors.length]
+    code: getCountryCode(name),
+    calls: count,
+    pct: geoTotal ? Math.round((count / geoTotal) * 100) : 0,
+    color: colors[idx % colors.length],
   }));
-
-  if (activeGeographies.length === 0) {
-    activeGeographies = [
-      { country: 'United States', flag: '🇺🇸', calls: 1420, pct: 60, color: 'bg-sky-500' },
-      { country: 'United Kingdom', flag: '🇬🇧', calls: 620, pct: 28, color: 'bg-emerald-500' },
-      { country: 'Canada', flag: '🇨🇦', calls: 310, pct: 15, color: 'bg-amber-500' },
-      { country: 'Australia', flag: '🇦🇺', calls: 180, pct: 8, color: 'bg-purple-500' }
-    ];
-  }
-
   // Pending FollowUp
   const pendingTodosCount = todos.filter(t => !t.completed).length;
   const totalTodosCount = todos.length || 1;
@@ -471,14 +473,15 @@ export default function DashboardOverview({
         <div className="bg-white border border-slate-200/80 rounded-xl p-6 shadow-sm overflow-hidden flex flex-col justify-between">
           <div>
             <h3 className="font-bold text-slate-800 text-sm mb-1">Active Geographies</h3>
-            <p className="text-xs text-slate-400 font-semibold mb-6">Call campaign target countries</p>
+            <p className="text-xs text-slate-400 font-semibold mb-6">Lead distribution by country or region</p>
 
-            <div className="flex flex-col gap-4">
-              {activeGeographies.map((item, idx) => (
+            {activeGeographies.length ? (
+              <div className="flex flex-col gap-4">
+                {activeGeographies.map((item, idx) => (
                 <div key={idx} className="flex flex-col gap-1.5">
                   <div className="flex justify-between items-center text-xs font-semibold text-slate-700">
                     <div className="flex items-center gap-2">
-                      <span className="text-sm">{item.flag}</span>
+                      <span className="w-6 text-[10px] font-extrabold text-slate-400">{item.code}</span>
                       <span className="font-bold text-slate-800">{item.country}</span>
                     </div>
                     <span className="text-slate-500 text-[11px]">{item.calls} leads ({item.pct}%)</span>
@@ -487,8 +490,13 @@ export default function DashboardOverview({
                     <div className={`${item.color} h-full`} style={{ width: `${item.pct}%` }} />
                   </div>
                 </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            ) : (
+              <p className="rounded-lg border border-dashed border-slate-200 px-4 py-8 text-center text-xs font-semibold text-slate-400">
+                Add a country or location to lead records to see this report.
+              </p>
+            )}
           </div>
         </div>
 

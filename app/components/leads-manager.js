@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import * as XLSX from 'xlsx';
 
 // Base Standard Columns requested by user
 const BASE_COLUMNS = [
@@ -16,6 +17,7 @@ const BASE_COLUMNS = [
   { key: 'add3', label: 'Add 3', type: 'text' },
   { key: 'cityPinCode', label: 'City & Pin Code', type: 'text' },
   { key: 'state', label: 'State', type: 'text' },
+  { key: 'country', label: 'Country', type: 'text' },
   { key: 'dearSirMadam', label: 'Dear Sir, Madam', type: 'text' },
   { key: 'phone', label: 'Phone', type: 'text' },
   { key: 'mobile', label: 'Mobile', type: 'text' },
@@ -24,6 +26,43 @@ const BASE_COLUMNS = [
   { key: 'trophy2', label: 'Trophy2', type: 'text' },
   { key: 'award', label: 'Award', type: 'text' }
 ];
+
+const parseCsv = (text) => {
+  const rows = [];
+  let row = [];
+  let field = '';
+  let insideQuotes = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index];
+    if (character === '"') {
+      if (insideQuotes && text[index + 1] === '"') {
+        field += '"';
+        index += 1;
+      } else {
+        insideQuotes = !insideQuotes;
+      }
+    } else if (character === ',' && !insideQuotes) {
+      row.push(field);
+      field = '';
+    } else if ((character === '\n' || character === '\r') && !insideQuotes) {
+      if (character === '\r' && text[index + 1] === '\n') index += 1;
+      row.push(field);
+      rows.push(row);
+      row = [];
+      field = '';
+    } else {
+      field += character;
+    }
+  }
+
+  if (insideQuotes) throw new Error('The CSV contains an unclosed quoted field.');
+  if (field || row.length) {
+    row.push(field);
+    rows.push(row);
+  }
+  return rows;
+};
 
 export default function LeadsManager({ leads, setLeads, user }) {
   // Local state for dynamic columns
@@ -48,6 +87,8 @@ export default function LeadsManager({ leads, setLeads, user }) {
   // New column form states
   const [newColLabel, setNewColLabel] = useState('');
   const [newColType, setNewColType] = useState('text');
+  const [isImporting, setIsImporting] = useState(false);
+  const importInputRef = useRef(null);
 
   // Load custom columns on client mount
   useEffect(() => {
@@ -75,7 +116,7 @@ export default function LeadsManager({ leads, setLeads, user }) {
     { key: 'updatedAt', label: 'Last Updated', type: 'datetime' }
   ];
 
-  if (user?.role === 'admin') {
+  if (user?.role === 'admin' || user?.role === 'manager') {
     trackingColumns.push(
       { key: 'createdBy', label: 'Created By', type: 'text' },
       { key: 'updatedBy', label: 'Updated By', type: 'text' }
@@ -83,6 +124,92 @@ export default function LeadsManager({ leads, setLeads, user }) {
   }
 
   const allColumns = [...BASE_COLUMNS, ...customColumns, ...trackingColumns];
+
+  const handleImportLeads = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setIsImporting(true);
+    let importedCount = 0;
+
+    try {
+      const extension = file.name.split('.').pop()?.toLowerCase();
+      let rows;
+      if (extension === 'xlsx') {
+        const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+        if (!firstSheet) throw new Error('The Excel workbook does not contain a worksheet.');
+        rows = XLSX.utils.sheet_to_json(firstSheet, { header: 1, defval: '', raw: false, blankrows: false })
+          .map(row => row.map(value => String(value ?? '').trim()));
+      } else if (extension === 'csv') {
+        rows = parseCsv((await file.text()).replace(/^\uFEFF/, ''));
+      } else {
+        throw new Error('Choose a .csv or .xlsx file to import leads.');
+      }
+
+      const headers = rows.shift()?.map(header => String(header ?? '').trim()) || [];
+      if (!headers.length || !rows.length) {
+        throw new Error('The file must include a header row and at least one lead.');
+      }
+
+      const columnsByHeader = new Map(
+        [...BASE_COLUMNS, ...customColumns, { key: 'status', label: 'Status' }]
+          .flatMap(column => [
+            [column.key.toLowerCase().replace(/[^a-z0-9]/g, ''), column.key],
+            [column.label.toLowerCase().replace(/[^a-z0-9]/g, ''), column.key],
+          ])
+      );
+      const aliases = {
+        leadname: 'name',
+        companyname: 'company',
+        emailaddress: 'email',
+        phonenumber: 'phone',
+        mobilenumber: 'mobile',
+      };
+      const mappedHeaders = headers.map((header) => {
+        const normalized = header.toLowerCase().replace(/[^a-z0-9]/g, '');
+        return columnsByHeader.get(normalized) || aliases[normalized] || null;
+      });
+      if (!mappedHeaders.some(Boolean)) {
+        throw new Error('No recognized lead columns found. Use the lead field names or labels as the header row.');
+      }
+
+      const leadsToImport = rows
+        .filter(row => row.some(value => String(value ?? '').trim()))
+        .map(row => row.reduce((lead, value, index) => {
+          const key = mappedHeaders[index];
+          const cellValue = String(value ?? '').trim();
+          if (key && cellValue) lead[key] = cellValue;
+          return lead;
+        }, {}));
+      if (!leadsToImport.length) throw new Error('The file does not contain any leads to import.');
+
+      for (let index = 0; index < leadsToImport.length; index += 100) {
+        const response = await fetch('/api/leads/import', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-user-id': user?.id || user?._id || '',
+          },
+          body: JSON.stringify({ leads: leadsToImport.slice(index, index + 100) }),
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+          throw new Error(data.error || 'The server could not import the leads.');
+        }
+        const importedLeads = data.leads.map(lead => ({ ...lead, id: lead._id }));
+        importedCount += importedLeads.length;
+        setLeads(prev => [...importedLeads, ...prev]);
+      }
+
+      alert(`Successfully imported ${importedCount} lead${importedCount === 1 ? '' : 's'}.`);
+    } catch (error) {
+      console.error('Error importing leads:', error);
+      alert(`${error.message}${importedCount ? ` ${importedCount} lead${importedCount === 1 ? '' : 's'} were imported before the error.` : ''}`);
+    } finally {
+      setIsImporting(false);
+      event.target.value = '';
+    }
+  };
 
   // Formatting URL badges cleanly
   const renderUrlBadge = (key, value) => {
@@ -386,7 +513,7 @@ export default function LeadsManager({ leads, setLeads, user }) {
     return matchesSearch && matchesStatus;
   });
 
-  const canViewLeads = user?.role === 'admin' || user?.permissions?.canView !== false;
+  const canViewLeads = user?.role === 'admin' || user?.role === 'manager' || user?.permissions?.canView !== false;
   const canEditLeads = user?.role === 'admin' || user?.permissions?.canEdit;
   const canDeleteLeads = user?.role === 'admin' || user?.permissions?.canDelete;
 
@@ -404,6 +531,26 @@ export default function LeadsManager({ leads, setLeads, user }) {
           <p className="text-xs text-slate-400 font-semibold mt-1">Configure and manage corporate call list</p>
         </div>
         <div className="flex items-center gap-2.5">
+          {canEditLeads && (
+            <>
+              <input
+                ref={importInputRef}
+                type="file"
+                accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                onChange={handleImportLeads}
+                className="hidden"
+                aria-label="Choose a CSV or XLSX file to import leads"
+              />
+              <button
+                type="button"
+                onClick={() => importInputRef.current?.click()}
+                disabled={isImporting}
+                className="px-4 py-2 border border-slate-200 hover:border-slate-300 text-slate-600 hover:text-slate-800 font-bold text-xs uppercase rounded-lg transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-wait"
+              >
+                {isImporting ? 'Importing...' : 'Import Leads'}
+              </button>
+            </>
+          )}
           <button 
             onClick={() => setColumnModal({ isOpen: true })}
             className="px-4 py-2 border border-slate-200 hover:border-slate-300 text-slate-600 hover:text-slate-800 font-bold text-xs uppercase rounded-lg transition-colors cursor-pointer"

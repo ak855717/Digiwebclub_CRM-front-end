@@ -32,6 +32,17 @@ const Sidebar = ({ activeTab, setActiveTab, user, onLogout, isOpen = true }) => 
   ];
 
   const featureItems = [
+    ...(user?.role === 'admin' || user?.permissions?.canViewReports ? [
+      {
+        id: 'reports',
+        label: 'Reports',
+        icon: (
+          <svg className="w-4.5 h-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M3 3v18h18M7 14l4-4 4 4 6-7" />
+          </svg>
+        )
+      }
+    ] : []),
     ...(user?.role === 'admin' ? [
       {
         id: 'users',

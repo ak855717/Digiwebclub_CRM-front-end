@@ -215,11 +215,15 @@ export default function UserManagement({ user: currentUser }) {
         },
         body: JSON.stringify({ newPassword }),
       });
-      const data = await response.json();
+      const data = await response.json().catch(() => ({
+        success: false,
+        error: `The server returned an unreadable response (${response.status}).`,
+      }));
 
       if (response.ok && data.success) {
         setPasswordUpdateStates((prev) => ({ ...prev, [userId]: 'success' }));
-        setSuccessMsg(data.message || 'Password updated successfully.');
+        const targetUser = users.find(user => user._id === userId);
+        setSuccessMsg(`${data.message || 'Password updated successfully.'}${targetUser?.userId ? ` Login ID: ${targetUser.userId}.` : ''}`);
         // clear input
         setPasswordInputs((prev) => ({ ...prev, [userId]: '' }));
         setTimeout(() => setPasswordUpdateStates((prev) => ({ ...prev, [userId]: 'idle' })), 2000);
@@ -434,7 +438,8 @@ export default function UserManagement({ user: currentUser }) {
                   <th className="p-4 border-r border-slate-100/60">User Identity</th>
                   <th className="p-4 border-r border-slate-100/60">Registration Date</th>
                   <th className="p-4 border-r border-slate-100/60 text-center">Auth Status Badge</th>
-                  <th className="p-4 text-center">Actions, Role & Permissions</th>
+                  <th className="p-4 border-r border-slate-100/60 text-center">Role & Password</th>
+                  <th className="p-4 text-center">Permissions</th>
                 </tr>
               </thead>
               <tbody>
@@ -496,7 +501,7 @@ export default function UserManagement({ user: currentUser }) {
                       </td>
 
                       {/* Column 4: Dropdown selector and Password Reset */}
-                      <td className="p-4 align-top">
+                      <td className="p-4 align-top border-r border-slate-100/60">
                         <div className="flex flex-col gap-3">
                           <div className="flex items-center gap-3">
                             <span className="text-[10px] font-bold text-slate-400 w-10">Role:</span>
@@ -540,12 +545,15 @@ export default function UserManagement({ user: currentUser }) {
                             <div className="flex gap-1.5 w-[130px]">
                               <input 
                                 type="password"
+                                autoComplete="new-password"
+                                minLength={4}
                                 placeholder="New Pass"
                                 value={passwordInputs[userObj._id] || ''}
                                 onChange={e => setPasswordInputs({...passwordInputs, [userObj._id]: e.target.value})}
                                 className="h-8 w-full px-2 border border-slate-200 rounded text-xs outline-none focus:border-sky-500 transition-all bg-white"
                               />
                               <button 
+                                type="button"
                                 onClick={() => handlePasswordChange(userObj._id)}
                                 disabled={passwordUpdateStates[userObj._id] === 'updating' || !(passwordInputs[userObj._id]?.length > 0)}
                                 className="px-2.5 bg-sky-500 hover:bg-sky-600 text-white rounded text-[10px] font-bold disabled:opacity-50 disabled:cursor-not-allowed transition-colors shrink-0"
@@ -568,6 +576,10 @@ export default function UserManagement({ user: currentUser }) {
                             </div>
                           </div>
 
+                        </div>
+                      </td>
+                      <td className="p-4 align-top min-w-[220px]">
+                        <div className="flex flex-col gap-2">
                           <div className="flex items-center gap-3 mt-1 pt-3 border-t border-slate-100">
                             <span className="text-[10px] font-bold text-slate-400 w-10">Perms:</span>
                             <div className="flex items-center gap-2 w-[130px] flex-wrap">
@@ -622,6 +634,21 @@ export default function UserManagement({ user: currentUser }) {
                               )}
                             </div>
                           </div>
+
+                          <div className="flex items-center gap-3 border-t border-slate-100 pt-2">
+                            <span className="text-[10px] font-bold text-slate-400 w-10">Report:</span>
+                            <label className="flex items-center gap-1.5 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={userObj.permissions?.canViewReports === true}
+                                disabled={isSelf || permissionUpdateStates[userObj._id] === 'updating'}
+                                onChange={(e) => handlePermissionChange(userObj._id, { ...userObj.permissions, canViewReports: e.target.checked })}
+                                className="w-3 h-3 accent-sky-500 rounded-sm cursor-pointer"
+                              />
+                              <span className="text-[10px] font-bold text-slate-600">View Reports</span>
+                            </label>
+                          </div>
+                        
                         </div>
                       </td>
                     </tr>
